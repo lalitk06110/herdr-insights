@@ -83,7 +83,7 @@ Top to bottom:
 
 ## Built from
 
-- **Mod:** `mods/insights/` with `mod.json` = `{ "place": "none", "title": "Insights" }`. It has no `props`, no layout block, and no `keys.json`. Open it with `mod.open {name: "insights"}`, which closes it when run again. To bind it to a key, add e.g. `"cmd-shift-i": "mod.open:insights"` under `global` in `keys.json` (the same form as the shipped `"cmd-p": "mod.open:picker"`). It can also be placed in a layout block as `"content": { "mod": "insights" }`.
+- **Mod:** `mods/insights/` with `mod.json` = `{ "place": "none", "title": "Insights" }`. It has no `props`, no layout block, and no `keys.json`. Open it as a tab with `tab.new {name: "Insights", mod: "insights"}`, or place it in a layout block as `"content": { "mod": "insights" }`. `mod.open {name: "insights"}` does nothing as shipped, because `mod.json` describes no overlay; add `"overlay": { "width": …, "height": … }` to `mod.json` first if you want to open it that way or bind it to a key (`"cmd-shift-i": "mod.open:insights"`).
 - **`main.js`** (QuickJS view, `export default class Insights extends View`):
   - `herdr`: `exec`, `appHome`, `home`, `theme`, `settings`, `nextCommand`, `readTextFile`.
   - `gpui-kit`: `View`, `div`, `svg`.
@@ -151,7 +151,7 @@ Top to bottom:
   - Missing roots are a note in the scan status, not an error.
 - **What it writes:** only under `<appHome>/data/insights/`: `insights.json`, `insights.json.lock/`, `insights.json.progress.json` (removed after each scan), and `insights.json.corrupt-*` backups. The store keeps full project folder paths, session ids and transcript file paths, alongside token counts. It isn't trimmed: on one machine with a long history it reached 39 MB.
 - **Network and programs:** it doesn't reach the network. The only program it runs is Node with the mod's own `presenter.mjs`.
-- **No key ships.** A `"none"` mod appears only where something opens it. Use `mod.open`, a key you add, or a layout block.
+- **No key ships.** A `"none"` mod appears only where something opens it. Use `tab.new` with `mod: "insights"`, or a layout block.
 - **Accepted but not shown:** `profile.name`, `profile.handle` and `profile.avatar` are validated in the config but never drawn.
 - **Placeholder:** the source roots field shows `~/.harness/sessions` when empty. It's only placeholder text.
 - **Limits:**
@@ -167,7 +167,7 @@ Top to bottom:
 ## Done when
 
 - `herdr-app check` passes for `mods/insights`.
-- With no `runtime.json` and `node` on PATH, opening the mod (`mod.open {name: "insights"}`) shows `Loading local insights` with a `Scanning N of M files` count. The dashboard follows, with the header reading `Updated Today HH:MM`.
+- With no `runtime.json` and `node` on PATH, opening the mod (`tab.new {mod: "insights"}`) shows `Loading local insights` with a `Scanning N of M files` count. The dashboard follows, with the header reading `Updated Today HH:MM`.
 - `<appHome>/data/insights/insights.json` exists after the first scan. No `insights.json.lock` folder or `.progress.json` file remains once the scan is done.
 - `node mods/insights/presenter.mjs prepare --store <appHome>/data/insights/insights.json` prints one JSON object with `"kind":"insights-presentation"` and a non-null `dashboard`.
 - Clicking a past heatmap cell outlines it in `accent`, and the second detail column changes to that day.
