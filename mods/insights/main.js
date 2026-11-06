@@ -260,7 +260,7 @@ function splitRoots(text) {
 
 function sourceLabel(value, config) {
   const source = (config.sources ?? []).find((item) => item?.adapter === value || item?.id === value);
-  return source?.label || (value === "unknown" ? "Unknown source" : value);
+  return source?.label || (value === "unknown" ? "Unknown agent" : value);
 }
 
 function warningText(warning) {
@@ -344,7 +344,7 @@ function changeColor(change, c) {
 }
 
 function allLabelFor(field) {
-  if (field === "source") return "All sources";
+  if (field === "source") return "All agents";
   if (field === "provider") return "All providers";
   if (field === "model") return "All models";
   return "All projects";
@@ -357,7 +357,7 @@ function facetLabel(field, value, config) {
   return value === "unknown" ? "Unknown project" : projectName(value);
 }
 
-function buildFacetOptions(field, facet, config) {
+function buildFacetOptions(field, facet, config, selectedValue) {
   const stats = facet?.stats ?? [];
   const options = stats.map((stat) => ({
     value: stat.value,
@@ -370,7 +370,7 @@ function buildFacetOptions(field, facet, config) {
   const seen = new Set(options.map((option) => option.value));
   if (field === "source") {
     for (const source of config.sources ?? []) {
-      const value = String(source?.adapter || source?.id || "");
+      const value = String(source?.id || "");
       if (!value || seen.has(value)) continue;
       options.push({
         value,
@@ -383,10 +383,24 @@ function buildFacetOptions(field, facet, config) {
       seen.add(value);
     }
   }
+  if (selectedValue !== "all" && !seen.has(selectedValue)) {
+    options.push({
+      value: selectedValue,
+      label: facetLabel(field, selectedValue, config),
+      detail: "",
+      meta: "0",
+      tokens: 0,
+      tooltip: "0 tokens",
+    });
+  }
   options.sort((left, right) => right.tokens - left.tokens || left.label.localeCompare(right.label));
   const total = facet?.total ?? 0;
   const truncated = Boolean(facet?.truncated) || options.length > MAX_FACET_OPTIONS;
   const visible = options.slice(0, MAX_FACET_OPTIONS);
+  if (selectedValue !== "all" && !visible.some((option) => option.value === selectedValue)) {
+    if (visible.length === MAX_FACET_OPTIONS) visible.pop();
+    visible.push(options.find((option) => option.value === selectedValue));
+  }
   return {
     truncated,
     total,
@@ -419,7 +433,7 @@ export default class Insights extends View {
     this.error = null;
     this.width = 960;
     this.height = 800;
-    this.filters = { provider: "all", model: "all" };
+    this.filters = { source: "all", provider: "all", model: "all" };
     this.period = "all";
     this.year = Number(todayKey().slice(0, 4));
     this.heatmapMode = "daily";
@@ -498,7 +512,7 @@ export default class Insights extends View {
             commandCx.notify();
           }
         } else if (name === "filters.clear") {
-          this.filters = { provider: "all", model: "all" };
+          this.filters = { source: "all", provider: "all", model: "all" };
           this.scheduleDashboard(commandCx, { force: true });
           commandCx.notify();
         }
@@ -659,6 +673,19 @@ export default class Insights extends View {
       }
       if (this.closed) return;
       if (this.nodeBinary) {
+        // Show the last compact dashboard immediately; the normal incremental
+        // scan below refreshes it. Never pull raw session rows into QuickJS.
+        try {
+          const cached = JSON.parse(await readTextFile(`${this.storePath()}.dashboard.json`));
+          if (this.closed) return;
+          const payload = cached?.value?.payload;
+          if (cached.version === 1 && cached.value.day === todayKey()
+            && isPresentation(payload) && payload.dashboard
+            && sameOptions(payload.options, this.dashboardOptions())) {
+            this.applySnapshot(payload, runtimeCx);
+          }
+        } catch { /* first run, old or corrupt cache: collect normally */ }
+        if (this.closed) return;
         this.refresh(runtimeCx);
         this.schedule(runtimeCx);
       }
@@ -1433,10 +1460,11 @@ export default class Insights extends View {
         .child(iconButton("ins-year-newer", "›", "Newer year", (_event, clickCx) => { this.setYear(-1, clickCx); clickCx.notify(); }, c, {
           color: this.year >= years[0] ? c.dim : c.mutedForeground,
         }))))
+      .child(this.filterMenu("source", "Agent", this.filters.source, facets.source, config, c, (value, pickCx) => { this.filters.source = value; this.scheduleDashboard(pickCx, { force: true }); }))
       .child(this.filterMenu("provider", "Provider", this.filters.provider, facets.provider, config, c, (value, pickCx) => { this.filters.provider = value; this.scheduleDashboard(pickCx, { force: true }); }))
       .child(this.filterMenu("model", "Model", this.filters.model, facets.model, config, c, (value, pickCx) => { this.filters.model = value; this.scheduleDashboard(pickCx, { force: true }); }))
       .when(active, (el) => el.child(button("ins-clear-filters", "Clear filters", (_event, clickCx) => {
-        this.filters = { provider: "all", model: "all" };
+        this.filters = { source: "all", provider: "all", model: "all" };
         this.scheduleDashboard(clickCx, { force: true });
         clickCx.notify();
       }, c, { variant: "ghost" })));
@@ -1460,7 +1488,7 @@ export default class Insights extends View {
       .on_open_change((open, changeCx) => {
         this.openFilter = open ? id : null;
         // Menu data is prepared in this event, never in the 50 ms render pass.
-        this.openOptions = open ? buildFacetOptions(field, facet, config) : null;
+        this.openOptions = open ? buildFacetOptions(field, facet, config, value) : null;
         changeCx.notify();
       });
     // Closed menus build no option elements; only the trigger is rendered.

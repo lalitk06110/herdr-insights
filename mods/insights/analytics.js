@@ -33,6 +33,27 @@ export const DEFAULT_SOURCES = [
     enabled: true,
     roots: ["~/.claude/projects"],
   },
+  {
+    id: "omp",
+    label: "omp",
+    adapter: "pi",
+    enabled: true,
+    roots: ["~/.omp/agent/sessions"],
+  },
+  {
+    id: "omo",
+    label: "omo",
+    adapter: "pi",
+    enabled: true,
+    roots: ["~/.omo/agent/sessions", "~/.omo/agent/projects"],
+  },
+  {
+    id: "prime-agent",
+    label: "Prime Agent",
+    adapter: "pi",
+    enabled: true,
+    roots: ["~/.prime/agent/sessions", "~/.prime/agent/session-artifacts"],
+  },
 ];
 export const PALETTES = ["blue", "green", "purple"];
 export const DEFAULT_REFRESH_SECONDS = 60;

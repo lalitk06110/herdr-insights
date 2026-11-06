@@ -65,15 +65,15 @@ function emitTask(ctx, history, session, key, duration, exact) {
 // Pi
 
 function piMainSession(state, ctx) {
-  if (state.header?.id) return `pi:${state.header.id}`;
-  return `pi-file:${ctx.file.path}`;
+  if (state.header?.id) return `${ctx.source.id}:${state.header.id}`;
+  return `${ctx.source.id}-file:${ctx.file.path}`;
 }
 
 function piSubagentSession(record, ctx) {
   const runId = asString(record.runId, "");
   const childIndex = Number.isInteger(record.childIndex) ? record.childIndex : 0;
-  if (runId) return `pi-sub:${runId}:${childIndex}`;
-  return `pi-file:${ctx.file.path}`;
+  if (runId) return `${ctx.source.id}-sub:${runId}:${childIndex}`;
+  return `${ctx.source.id}-file:${ctx.file.path}`;
 }
 
 function piUsageCarrier(record, ctx) {
@@ -93,13 +93,13 @@ function piUsageCarrier(record, ctx) {
     output: usage.output,
     cacheRead: usage.cacheRead,
     cacheWrite: usage.cacheWrite,
-    reasoning: usage.reasoning,
+    reasoning: usage.reasoning ?? usage.reasoningTokens,
   });
   if (!tokens.nonzero) return;
   const identity = record.id ?? `line:${ctx.lineHash}`;
   ctx.addUsage(
     metaFor(
-      "pi",
+      ctx.source.id,
       session,
       timestamp,
       asString(state.header?.cwd, "unknown"),
@@ -107,7 +107,7 @@ function piUsageCarrier(record, ctx) {
       record.model,
     ),
     tokens,
-    makeDedupKey("pi", record.type, identity, timestamp),
+    makeDedupKey(ctx.source.id, record.type, identity, timestamp),
   );
 }
 
@@ -127,7 +127,7 @@ function piTiming(record, ctx, session, timestamp, isFinal, finalIdentity) {
     ctx,
     history,
     session,
-    taskKeyFor("pi", "span", finalIdentity),
+    taskKeyFor(ctx.source.id, "span", finalIdentity),
     spanMs(start, timestamp),
     false,
   );
@@ -213,13 +213,13 @@ function parsePi(record, ctx) {
         output: usage.output,
         cacheRead: usage.cacheRead,
         cacheWrite: usage.cacheWrite,
-        reasoning: usage.reasoning,
+        reasoning: usage.reasoning ?? usage.reasoningTokens,
       });
       if (tokens.nonzero) {
         const result = ctx.addUsage(
-          metaFor("pi", session, timestamp, project, provider, model),
+          metaFor(ctx.source.id, session, timestamp, project, provider, model),
           tokens,
-          makeDedupKey("pi", identity, timestamp, provider, model),
+          makeDedupKey(ctx.source.id, identity, timestamp, provider, model),
         );
         rememberLastRow(history, result);
       }
@@ -231,7 +231,7 @@ function parsePi(record, ctx) {
         session,
         timestamp,
         true,
-        hashKey("pi-final", identity, timestamp, provider, model),
+        hashKey(`${ctx.source.id}-final`, identity, timestamp, provider, model),
       );
     }
     return;
@@ -278,13 +278,13 @@ function parsePi(record, ctx) {
         output: usage.output,
         cacheRead: usage.cacheRead,
         cacheWrite: usage.cacheWrite,
-        reasoning: usage.reasoning,
+        reasoning: usage.reasoning ?? usage.reasoningTokens,
       });
       if (tokens.nonzero) {
         const result = ctx.addUsage(
-          metaFor("pi", session, timestamp, project, provider, model),
+          metaFor(ctx.source.id, session, timestamp, project, provider, model),
           tokens,
-          makeDedupKey("pi", identity, timestamp, provider, model),
+          makeDedupKey(ctx.source.id, identity, timestamp, provider, model),
         );
         rememberLastRow(history, result);
       }
@@ -296,7 +296,7 @@ function parsePi(record, ctx) {
         session,
         timestamp,
         true,
-        hashKey("pi-final", identity, timestamp, provider, model),
+        hashKey(`${ctx.source.id}-final`, identity, timestamp, provider, model),
       );
     }
   }

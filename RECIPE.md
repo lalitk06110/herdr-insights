@@ -1,6 +1,6 @@
 # Insights
 
-A local token-usage dashboard for coding agents, drawn natively in Herdr. It reads the session transcripts that Pi, Codex, OpenCode and Claude Code leave on your disk. It then shows lifetime totals, a year-long GitHub-style heatmap of tokens per day, the selected day next to all time, a weekly stacked chart of your top models, and a top-10 model leaderboard with change against the previous period. Nothing leaves the machine. It sends no network requests, and it stores only token counts with their day, session, model, provider and project folder, never prompts or code.
+A local token-usage dashboard for coding agents, drawn natively in Herdr. It reads the session transcripts that Pi, Codex, OpenCode, Claude Code, omp, omo and Prime Agent leave on your disk. It then shows lifetime totals, a year-long GitHub-style heatmap of tokens per day, the selected day next to all time, a weekly stacked chart of your top models, and a top-10 model leaderboard with change against the previous period. Nothing leaves the machine. It sends no network requests, and it stores only token counts with their day, session, model, provider and project folder, never prompts or code.
 
 ![Insights](preview.png)
 
@@ -22,7 +22,7 @@ Top to bottom:
    The dark set is used when the theme `background` has luminance under 128. Future days are `raised` at 30% opacity. The selected day has a 1px `accent` border. A legend at the bottom right reads `Less ▢▢▢▢▢ More` (10px squares) and `X in window`.
 6. **Day detail card.** Two columns: `ALL TIME` and the selected day (`TODAY`, or e.g. `WED, NOV 4, 2026`). Each column shows `Input`, `Output`, `Cache hit rate` (cache reads ÷ (input + cache reads)) and `Top model`.
 7. **Section rule `Model usage`.**
-8. **Filter bar** (no card). A segmented `Week` / `Month` / `Year` / `All`. In Year mode a `‹ 2026 ›` stepper follows it. Then `Provider` and `Model` dropdown triggers (label in `dim`, value up to 132px, `⌄`; the border turns `accent` when a filter is set), and a ghost `Clear filters` button while any filter is set.
+8. **Filter bar** (no card). A segmented `Week` / `Month` / `Year` / `All`. In Year mode a `‹ 2026 ›` stepper follows it. Then `Agent`, `Provider` and `Model` dropdown triggers (label in `dim`, value up to 132px, `⌄`; the border turns `accent` when a filter is set), and a ghost `Clear filters` button while any filter is set.
 9. **`Top models` card.** Subtitle: `26 weeks · 3.1B tokens · cache included`. A stacked weekly bar chart, 168px high: the top 7 models plus `Other`, with a 28px y-axis (`max`, `max/2`, `0`) and a week label every ⌈weeks/6⌉ bars. Series colors are `#5b8def #3fb27f #e0a23c #d96c92 #8f6fe0 #41b3ba #e2704f`, and `Other` is `#6f8fd1`. Below the chart is a legend of 8px dots with names truncated at 180px. With no tokens in the window, the card shows `No model usage in this window.` instead.
 10. **`Model Usage` leaderboard card.** Subtitle: `<range label> · tokens · sessions`. Up to 10 rows. Each row has the rank, a 26px `raised` tile with a 14px monochrome brand logo (or the model's initial), the model name, `by <provider>`, `<n> tokens`, and the change against the previous period. The change reads `↑+12.5%` in `done`, `↓-8.0%` in `blocked`, `New` in `accent`, or `0%` / `—` in `dim`. Two columns from 960px wide. A footer reads `Showing top 10 of N by tokens.`. When empty, it shows `No usage in this period` with a `Show all time` button.
 
@@ -51,21 +51,21 @@ Top to bottom:
 ## How it behaves
 
 - It doesn't read agent status (working, blocked, done, idle). It only reads transcript files.
-- **On open:** it reads the optional `runtime.json` to pick the Node binary. Then it runs a scan (`snapshot`) and repeats it every `refreshSeconds` (default 60, clamped 30–3600). The scan is incremental: unchanged files (same inode, size and mtime) are skipped, and growing JSONL files are read from the last offset.
+- **On open:** it reads the optional `runtime.json` to pick the Node binary. It shows the last compact dashboard if today's default view matches, then runs a scan (`snapshot`) and repeats it every `refreshSeconds` (default 60, clamped 30–3600). The scan is incremental: unchanged files (same inode, size and mtime) are skipped, and growing JSONL files are read from the last offset.
 - **During a scan:** the body polls the progress file every 500ms (up to 240 ticks) to show the file count and the current path. A refresh or save that takes over 35s is abandoned and reports `Refresh timed out after 35 seconds. Retry to try again.`
 - **Refresh** runs a scan. **Retry** buttons rerun the step that failed. If a refresh fails after a snapshot exists, the old data stays on screen under a `Could not refresh insights` banner.
 - **Heatmap:**
   - Clicking a past cell selects that day, and the day detail column switches to it.
   - Hovering a cell dims it to 80% and shows e.g. `Wed, Nov 4, 2026: 1,234,567 tokens · 3 sessions`. Weekly mode shows `Week of …`, cumulative mode `Through …`.
   - `Daily` colors each day by its own total. `Weekly` repeats the week total on all 7 cells. `Cumulative` is the running all-time total.
-- **Scope:** the metric strip, heatmap and day detail always cover all data. The period and the Provider/Model filters scope only the Model usage section.
+- **Scope:** the metric strip, heatmap and day detail always cover all data. The period and the Agent/Provider/Model filters scope only the Model usage section.
 - **Periods:**
   - `Week` and `Month` run to today. `Year` runs Jan 1 to today, or to Dec 31 for past years.
   - Each period is compared with the same span one period back.
   - `‹` goes to an older year and `›` to a newer one, within the years that have data.
   - Changing the period moves the selected day to the period's end.
-- **Filter menus:** each is a popover, 240px wide and up to 320px high, scrolling. The first entry is `All providers` / `All models`. After it come up to 250 values sorted by tokens, each with a compact token count and a `✓` on the selected one. Beyond that the menu reads `Showing top 250 by tokens.`. Picking a value closes the menu.
-- **Filter changes** never rescan. They run the read-only `prepare` step against the saved store. While it runs, the header says `Preparing…`.
+- **Filter menus:** each is a popover, 240px wide and up to 320px high, scrolling. The first entry is `All agents` / `All providers` / `All models`. After it come up to 250 values sorted by tokens, each with a compact token count and a `✓` on the selected one. Beyond that the menu reads `Showing top 250 by tokens.`. Picking a value closes the menu.
+- **Filter changes** never rescan. They run `prepare`, reusing a matching dashboard or cached aggregated rows, with a read-only store fallback. Disposable, private `insights.json.snapshot.json` and `insights.json.dashboard.json` sidecars invalidate on store, implementation or timezone changes; dashboards also check options and the current day. While it runs, the header says `Preparing…`.
 - **Settings:**
   - Toggles and segmented controls edit a draft, and the JSON editor reflects the draft. Edited JSON is applied to the fields when the editor loses focus.
   - Enter in a roots or interval field saves. `Save configuration` validates the draft, writes it and rescans.
@@ -96,7 +96,7 @@ Top to bottom:
 - **Program run:** `node` only, through `exec`, always as `node <appHome>/mods/insights/presenter.mjs <command> --store <appHome>/data/insights/insights.json …`. The commands are:
   - `snapshot --home <home()> --options <json>`: scan, then derive.
   - `configure --home … --config <json> --options <json>`: validate, save, scan, derive.
-  - `prepare --options <json>`: read the store read-only, then derive. It never scans.
+  - `prepare --options <json>`: reuse a matching dashboard or aggregated-row cache; otherwise read the store read-only, then derive. It never scans.
 
   The options are `{filters, period, year, heatmapMode, selectedDay, today}`. The presenter prints one JSON object, `{kind: "insights-presentation", version: 1, snapshot, dashboard, error}`, so QuickJS never sees raw rows. The mod doesn't call `hc`, and it doesn't call `fetch` or any network API.
 - **`collector.mjs`:** takes the store lock, loads the store, runs `scanSources`, saves, and builds the snapshot. It also runs standalone with `snapshot|configure --store <file> [--home <dir>] [--rebuild]`.
@@ -113,24 +113,27 @@ Top to bottom:
       { "id": "pi", "label": "Pi", "adapter": "pi", "enabled": true, "roots": ["~/.pi/agent/sessions"] },
       { "id": "codex", "label": "Codex", "adapter": "codex", "enabled": true, "roots": ["~/.codex/sessions", "~/.codex/archived_sessions"] },
       { "id": "opencode", "label": "OpenCode", "adapter": "opencode", "enabled": true, "roots": ["~/.local/share/opencode"] },
-      { "id": "claude", "label": "Claude Code", "adapter": "claude", "enabled": true, "roots": ["~/.claude/projects"] }
+      { "id": "claude", "label": "Claude Code", "adapter": "claude", "enabled": true, "roots": ["~/.claude/projects"] },
+      { "id": "omp", "label": "omp", "adapter": "pi", "enabled": true, "roots": ["~/.omp/agent/sessions"] },
+      { "id": "omo", "label": "omo", "adapter": "pi", "enabled": true, "roots": ["~/.omo/agent/sessions", "~/.omo/agent/projects"] },
+      { "id": "prime-agent", "label": "Prime Agent", "adapter": "pi", "enabled": true, "roots": ["~/.prime/agent/sessions", "~/.prime/agent/session-artifacts"] }
     ]
   }
   ```
 
-  Adapters are `pi`, `codex`, `opencode`, `claude`, and `custom`. A `custom` source needs a declarative `mapping` (`session`, `timestamp`, `usage`, and optionally `messageId`, `project`, `model`, `provider`, `role`/`roles`, `include`, `taskDurationMs`, `harness`; fields are dot paths, `{path, default}` or `{literal}`). A store saved with only the old three default sources gets Claude Code added.
+  Adapters are `pi`, `codex`, `opencode`, `claude`, and `custom`. A `custom` source needs a declarative `mapping` (`session`, `timestamp`, `usage`, and optionally `messageId`, `project`, `model`, `provider`, `role`/`roles`, `include`, `taskDurationMs`, `harness`; fields are dot paths, `{path, default}` or `{literal}`). A store saved with only the old three default sources gets Claude Code added. The three additional Pi-compatible agents apply to new configurations only; existing source lists are preserved. Their session, usage and task identities remain source-specific.
 - **`core/scan.mjs`:**
   - Walks each enabled root, matching `*.jsonl`, plus `*.jsonl.zst` for Codex and `opencode.db` for OpenCode. It doesn't follow directory symlinks, stops at 250,000 entries per root, and skips lines over 16 MiB.
   - Streams JSONL in 256 KiB chunks and keeps each file's offset.
   - Decompresses `.jsonl.zst` with `zlib.createZstdDecompress`.
-  - Opens `opencode.db` with `node:sqlite` `DatabaseSync(path, {readOnly: true})` and `SELECT session_id, id, time_created, data FROM message`.
+  - Opens `opencode.db` with `node:sqlite` `DatabaseSync(path, {readOnly: true})` and an assistant-only join of `session_message` with `session_v2`. Provider/model ids come from `data.model`, project folders from the session, and separate reasoning tokens are included in output once.
   - Keeps at most 50 warnings.
 - **`core/adapters.mjs`:** the per-harness record parsers.
   - Pi: `session` header, `message` usage, `usage`/`compaction`/`branch_summary` carriers, sub-agent records.
   - Claude: `assistant` `message.usage`, `system`/`turn_duration`.
   - Codex: `session_meta`, `turn_context`, `token_usage_record`, `event_msg` `token_count` (cumulative and last), `task_complete`, with twin de-duplication.
   - Custom: the mapping.
-- **`core/store.mjs`:** the JSON store at `<appHome>/data/insights/insights.json` (`version: 1`). It holds the config, per-file entries (path, inode, size, mtime, offset, rows), a de-duplication map with max-upsert per message, and task durations. A corrupt store is copied to `insights.json.corrupt-<timestamp>` and a fresh one is started.
+- **`core/store.mjs`:** the JSON store at `<appHome>/data/insights/insights.json` (`version: 1`). It holds the config, per-file entries (path, inode, size, mtime, offset, rows), a de-duplication map with max-upsert per message, and task durations. A transient reverse lookup makes per-file resets proportional to that file's metadata instead of the entire history. A corrupt store is copied to `insights.json.corrupt-<timestamp>` and a fresh one is started.
 - **`core/util.mjs`:**
   - Atomic writes (temp file, then rename; files 0600, folders 0700).
   - `~` expansion.
@@ -145,11 +148,11 @@ Top to bottom:
 - **`exec` has a 30 s limit** (herdr.d.ts), and the mod's own watchdog is 35 s. The collector saves the store only after the whole scan finishes. A first scan of a very large history that takes longer than 30 s is therefore never saved.
 - **The folder name is hard-coded.** `mods/insights/presenter.mjs` (main.js:135), `mods/insights/runtime.json` (main.js:134), `mods/insights/logos/…` (main.js:1724) and `data/insights/insights.json` (main.js:679) are fixed paths. If the mod is renamed to avoid a name clash, change all four.
 - **What it reads outside its own folder:**
-  - The five default roots under the home folder, recursively: `~/.pi/agent/sessions`, `~/.codex/sessions`, `~/.codex/archived_sessions`, `~/.local/share/opencode`, `~/.claude/projects`.
+  - The configured roots listed above, recursively, including the additional omp, omo and Prime Agent roots for new configurations.
   - Any roots added in Settings.
   - OpenCode's `opencode.db` (and the size of `opencode.db-wal`), opened read-only.
   - Missing roots are a note in the scan status, not an error.
-- **What it writes:** only under `<appHome>/data/insights/`: `insights.json`, `insights.json.lock/`, `insights.json.progress.json` (removed after each scan), and `insights.json.corrupt-*` backups. The store keeps full project folder paths, session ids and transcript file paths, alongside token counts. It isn't trimmed: on one machine with a long history it reached 39 MB.
+- **What it writes:** only under `<appHome>/data/insights/`: `insights.json`, `insights.json.lock/`, `insights.json.progress.json` (removed after each scan), the two disposable cache sidecars, and `insights.json.corrupt-*` backups. The store keeps full project folder paths, session ids and transcript file paths, alongside token counts. It isn't trimmed: on one machine with a long history it reached 39 MB.
 - **Network and programs:** it doesn't reach the network. The only program it runs is Node with the mod's own `presenter.mjs`.
 - **No key ships.** A `"none"` mod appears only where something opens it. Use `tab.new` with `mod: "insights"`, or a layout block.
 - **Accepted but not shown:** `profile.name`, `profile.handle` and `profile.avatar` are validated in the config but never drawn.
@@ -161,7 +164,7 @@ Top to bottom:
   - 250 entries per filter menu.
   - 6 warnings shown in the status card (50 kept).
   - Refresh interval 30–3600 s.
-  - `readTextFile` reads at most 1 MiB, but it is used only for `runtime.json` and the progress file.
+  - `readTextFile` reads at most 1 MiB and is used for `runtime.json`, progress and the compact dashboard cache. Oversized dashboard caches fall back to normal collection; raw rows stay in Node.
 - **Local days:** every day boundary uses the machine's local time zone. Changing the time zone moves usage between days on the next rebuild.
 
 ## Done when

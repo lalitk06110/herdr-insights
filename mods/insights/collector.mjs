@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { migrateLoadedConfig, normalizeConfig, sourcesSignature } from "./core/config.mjs";
 import { scanSources } from "./core/scan.mjs";
+import { cacheRevision, readCache, writeCache } from "./core/cache.mjs";
 import {
   clearCollectedData,
   loadStore,
@@ -49,22 +50,27 @@ function parseArgs(argv) {
   return { command, options };
 }
 
-async function buildSnapshot(store, scan, nowIso, loadWarnings = [], loadErrors = 0) {
+async function buildSnapshot(storePath, store, scan, nowIso, loadWarnings = [], loadErrors = 0) {
+  const revision = await cacheRevision(storePath);
+  const cached = await readCache(storePath, "snapshot", revision);
   const warnings = [...loadWarnings, ...scan.warnings];
   const stats = {
     ...scan.stats,
     errors: scan.stats.errors + loadErrors,
   };
-  return {
+  const snapshot = {
     version: 1,
+    revision,
     generatedAt: nowIso,
     lastScanAt: nowIso,
     config: store.config,
-    rows: snapshotRows(store),
+    rows: Array.isArray(cached?.rows) ? cached.rows : snapshotRows(store),
     stats,
     sourceStats: scan.sourceStats ?? undefined,
     warnings,
   };
+  await writeCache(storePath, "snapshot", revision, snapshot);
+  return snapshot;
 }
 
 /**
@@ -115,7 +121,7 @@ async function snapshotWithStore(storePath, home, { rebuild = false } = {}) {
     }
     if (dirty || scan.dirty) await saveStore(storePath, store);
     const now = new Date().toISOString();
-    return buildSnapshot(store, scan, now, loaded.warnings, loaded.errors);
+    return buildSnapshot(storePath, store, scan, now, loaded.warnings, loaded.errors);
   });
 }
 
@@ -162,7 +168,7 @@ async function configureStore(storePath, home, rawConfig, { rebuild = false } = 
     }
     if (dirty || scan.dirty) await saveStore(storePath, store);
     const now = new Date().toISOString();
-    return buildSnapshot(store, scan, now, loaded.warnings, loaded.errors);
+    return buildSnapshot(storePath, store, scan, now, loaded.warnings, loaded.errors);
   });
 }
 

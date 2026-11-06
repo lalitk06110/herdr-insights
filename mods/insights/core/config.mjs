@@ -45,6 +45,28 @@ const CLAUDE_SOURCE = Object.freeze({
   roots: Object.freeze(["~/.claude/projects"]),
 });
 
+const OMP_SOURCE = Object.freeze({
+  id: "omp",
+  label: "omp",
+  adapter: "pi",
+  enabled: true,
+  roots: Object.freeze(["~/.omp/agent/sessions"]),
+});
+const OMO_SOURCE = Object.freeze({
+  id: "omo",
+  label: "omo",
+  adapter: "pi",
+  enabled: true,
+  roots: Object.freeze(["~/.omo/agent/sessions", "~/.omo/agent/projects"]),
+});
+const PRIME_SOURCE = Object.freeze({
+  id: "prime-agent",
+  label: "Prime Agent",
+  adapter: "pi",
+  enabled: true,
+  roots: Object.freeze(["~/.prime/agent/sessions", "~/.prime/agent/session-artifacts"]),
+});
+
 // Stores written before Claude Code became a default source get the same
 // upgrade, but only when they still contain the untouched previous defaults.
 const LEGACY_DEFAULT_SOURCES = Object.freeze([
@@ -59,7 +81,10 @@ export const DEFAULT_CONFIG = Object.freeze({
   includeCache: true,
   weekStartsOn: 0,
   refreshSeconds: 60,
-  sources: Object.freeze([PI_SOURCE, CODEX_SOURCE, OPENCODE_SOURCE, CLAUDE_SOURCE]),
+  sources: Object.freeze([
+    PI_SOURCE, CODEX_SOURCE, OPENCODE_SOURCE, CLAUDE_SOURCE,
+    OMP_SOURCE, OMO_SOURCE, PRIME_SOURCE,
+  ]),
 });
 
 export const BUILTIN_ADAPTERS = new Set(["pi", "claude", "codex", "opencode"]);

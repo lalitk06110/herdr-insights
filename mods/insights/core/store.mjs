@@ -41,7 +41,29 @@ export function prepareStore(store) {
     writable: true,
     configurable: true,
   });
+  Object.defineProperty(store, "_metadataByFile", {
+    value: new Map(), enumerable: false, configurable: true,
+  });
+  for (const kind of ["dedup", "tasks"]) {
+    for (const [key, entry] of Object.entries(store[kind] ?? {})) {
+      if (Array.isArray(entry)) indexMetadata(store, kind, key, entry);
+    }
+  }
   return store;
+}
+
+// Transient reverse lookup: resetting one session must not walk every message
+// in the entire history. Copies are indexed too, so ownership transfer is safe.
+function indexMetadata(store, kind, key, entry) {
+  const auxIndex = kind === "dedup" ? DEDUP_AUX_INDEX : TASK_AUX_INDEX;
+  for (const id of [entry[0], ...(entry[auxIndex]?.copies ?? [])]) {
+    let keys = store._metadataByFile.get(id);
+    if (!keys) {
+      keys = { dedup: new Set(), tasks: new Set() };
+      store._metadataByFile.set(id, keys);
+    }
+    keys[kind].add(key);
+  }
 }
 
 export function findFileById(store, id) {
@@ -80,20 +102,25 @@ export function deleteFileEntry(store, key) {
 }
 
 export function removeOwnedMetadata(store, fileId) {
-  for (const [key, value] of Object.entries(store.dedup)) {
+  if (!store._metadataByFile) prepareStore(store);
+  const keys = store._metadataByFile.get(fileId);
+  for (const key of keys?.dedup ?? []) {
+    const value = store.dedup[key];
     if (!Array.isArray(value)) continue;
     dropCopyCandidate(value, DEDUP_AUX_INDEX, fileId);
     if (value[0] !== fileId) continue;
     if (transferDedupOwnership(store, value)) continue;
     delete store.dedup[key];
   }
-  for (const [key, value] of Object.entries(store.tasks)) {
+  for (const key of keys?.tasks ?? []) {
+    const value = store.tasks[key];
     if (!Array.isArray(value)) continue;
     dropCopyCandidate(value, TASK_AUX_INDEX, fileId);
     if (value[0] !== fileId) continue;
     if (transferTaskOwnership(store, value)) continue;
     delete store.tasks[key];
   }
+  store._metadataByFile.delete(fileId);
 }
 
 export function resetFileEntry(store, entry) {
@@ -293,6 +320,7 @@ export function addUsage(store, file, meta, tokens, dedupKey) {
       }
       if (owner.id !== file.id) {
         recordCopyCandidate(entry, DEDUP_AUX_INDEX, row, file.id);
+        indexMetadata(store, "dedup", dedupKey, entry);
       }
       return {
         fileId: owner.id,
@@ -319,6 +347,7 @@ export function addUsage(store, file, meta, tokens, dedupKey) {
     tokens.cacheWrite,
     tokens.reasoning,
   ];
+  indexMetadata(store, "dedup", dedupKey, store.dedup[dedupKey]);
   return {
     fileId: file.id,
     rowIdx,
@@ -356,6 +385,7 @@ export function addTask(
       const existingRow = existingOwner?.rows?.[existing[1]];
       if (existingOwner && existingRow) {
         recordCopyCandidate(existing, TASK_AUX_INDEX, existingRow, candidateFileId);
+        indexMetadata(store, "tasks", taskKey, existing);
       }
     }
     if (existing[0] === fileId && exact && existing[3] === 0) {
@@ -371,6 +401,7 @@ export function addTask(
   }
   const sHash = sessionHash(session);
   store.tasks[taskKey] = [fileId, rowIdx, ms, exact ? 1 : 0, sHash];
+  indexMetadata(store, "tasks", taskKey, store.tasks[taskKey]);
   if (!Array.isArray(owner.tasks)) owner.tasks = [];
   owner.tasks.push(taskKey);
   return true;

@@ -517,9 +517,9 @@ function openCodeInt(value) {
 }
 
 /**
- * OpenCode stores sessions in one SQLite database. Messages are immutable
- * once completed and each assistant row carries canonical tokens, so a full
- * re-read through the max-upsert dedup is exact. The WAL file changes on
+ * OpenCode stores assistant messages in one SQLite database. Rebuild this
+ * file's usage rows when it changes so streamed token updates replace,
+ * rather than accumulate over, previous counts. The WAL file changes on
  * every write while the main database may not, so the checkpoint fingerprint
  * covers both files.
  */
@@ -556,7 +556,7 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats) {
     });
     dirty = true;
   }
-  if (entry.state.opencodeParserVersion === 2 && entry.state.opencodeFingerprint === fingerprint) {
+  if (entry.state.opencodeParserVersion === 4 && entry.state.opencodeFingerprint === fingerprint) {
     if (entry.state.opencodeMalformedRows) sink.warn(`opencode ${filePath}: ${entry.state.opencodeMalformedRows} malformed message rows were skipped.`);
     stats.unchangedFiles += 1;
     return dirty;
@@ -581,7 +581,12 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats) {
   try {
     // Never open an external source writable, including on recovery errors.
     db = new sqlite.DatabaseSync(filePath, { readOnly: true });
-    const records = db.prepare("SELECT session_id, id, time_created, data FROM message").iterate();
+    const records = db.prepare(`
+      SELECT m.session_id, m.id, m.time_created, m.data, s.directory
+      FROM session_message AS m
+      JOIN session_v2 AS s ON s.id = m.session_id
+      WHERE m.type = 'assistant'
+    `).iterate();
     checkpoint = structuredClone(store);
     resetFileEntry(store, entry);
     delete entry.state.unsupported;
@@ -594,7 +599,8 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats) {
         continue;
       }
       if (!isPlainObject(data)) { malformedRows += 1; continue; }
-      if (data.role !== "assistant") continue;
+      // Failed requests can complete without reporting token usage.
+      if (data.tokens === undefined) continue;
       if (!isPlainObject(data.tokens)) { malformedRows += 1; continue; }
       const reported = [data.tokens.input, data.tokens.output, data.tokens.reasoning, data.tokens.cache?.read, data.tokens.cache?.write];
       if (reported.some((value) => value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < 0))) {
@@ -603,7 +609,7 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats) {
       }
       const tokens = {
         input: openCodeInt(data.tokens.input),
-        output: openCodeInt(data.tokens.output),
+        output: openCodeInt(data.tokens.output) + openCodeInt(data.tokens.reasoning),
         cacheRead: openCodeInt(data.tokens.cache?.read),
         cacheWrite: openCodeInt(data.tokens.cache?.write),
         reasoning: openCodeInt(data.tokens.reasoning),
@@ -616,9 +622,9 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats) {
         day: localDay(created),
         session,
         harness: source.id,
-        provider: openCodeString(data.providerID),
-        model: openCodeString(data.modelID),
-        project: typeof data.path?.cwd === "string" ? data.path.cwd : "",
+        provider: openCodeString(data.model?.providerID),
+        model: openCodeString(data.model?.id),
+        project: typeof record.directory === "string" ? record.directory : "",
       }, tokens, dedupKeyFor("opencode", "message", String(record.id)));
       const completed = openCodeInt(data.time?.completed);
       if (completed > created) {
@@ -649,7 +655,7 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats) {
   entry.size = dbStat.size;
   entry.mtimeMs = dbStat.mtimeMs;
   entry.state.opencodeFingerprint = fingerprint;
-  entry.state.opencodeParserVersion = 2;
+  entry.state.opencodeParserVersion = 4;
   entry.state.opencodeMalformedRows = malformedRows;
   if (malformedRows) sink.warn(`opencode ${filePath}: ${malformedRows} malformed message rows were skipped.`);
   stats.filesRead += 1;
@@ -657,7 +663,7 @@ async function scanOpenCodeDb(store, source, filePath, sink, stats) {
   return true;
 }
 
-async function scanOneFile(store, source, filePath, sink, stats) {
+async function scanOneFile(store, source, filePath, sink, stats, fileStat) {
   const sourceSink = {
     warn(message) {
       sink.warn(`[${source.id}] ${message}`, source.id);
@@ -669,9 +675,8 @@ async function scanOneFile(store, source, filePath, sink, stats) {
   if (source.adapter === "opencode") {
     return scanOpenCodeDb(store, source, filePath, sourceSink, stats);
   }
-  let fileStat;
   try {
-    fileStat = await stat(filePath);
+    fileStat ??= await stat(filePath);
   } catch (error) {
     if (error?.code !== "ENOENT") {
       sourceSink.warn(`${source.adapter} ${filePath}: cannot stat file: ${error.message}`);
@@ -733,7 +738,9 @@ async function scanOneFile(store, source, filePath, sink, stats) {
     entry.dev !== dev ||
     entry.ino !== ino ||
     fileStat.size < entry.size ||
-    fileStat.size < entry.offset
+    fileStat.size < entry.offset ||
+    // JSONL normally appends. A same-size edit is a rewrite, not an empty tail.
+    (fileStat.size === entry.size && fileStat.mtimeMs !== entry.mtimeMs)
   ) {
     resetFileEntry(store, entry);
     entry.dev = dev;
@@ -782,7 +789,9 @@ async function scanOneFile(store, source, filePath, sink, stats) {
   entry.mtimeMs = fileStat.mtimeMs;
   entry.path = filePath;
   if (parserVersion) entry.state[parserKey] = parserVersion;
-  return dirty;
+  // Persist metadata even for an empty/trailing-partial file: it is part of
+  // the checkpoint used to skip unchanged sessions on the next dashboard.
+  return true;
 }
 
 export async function scanSources(store, { home, onProgress } = {}) {
@@ -844,6 +853,7 @@ export async function scanSources(store, { home, onProgress } = {}) {
       found.file,
       sink,
       stats,
+      fileStat,
     ).catch((error) => {
       sink.warn(
         `[${found.source.id}] ${found.source.adapter} ${found.file}: scan failed: ${error.message}`,

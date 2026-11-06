@@ -12,9 +12,12 @@ import {
   PRESENTATION_VERSION,
   compactDashboard,
   deriveDashboard,
+  isPresentation,
+  todayKey,
 } from "./analytics.js";
 import { collectSnapshot } from "./collector.mjs";
 import { loadStore, snapshotRows } from "./core/store.mjs";
+import { cacheRevision, readCache, writeCache } from "./core/cache.mjs";
 
 function usage() {
   return [
@@ -125,6 +128,12 @@ function derive(snapshot, options) {
   }
 }
 
+function matchesDashboard(cached, options) {
+  return cached?.day === todayKey() && isPresentation(cached.payload)
+    && cached.payload.dashboard && !cached.payload.error
+    && JSON.stringify(cached.payload.options) === JSON.stringify(options);
+}
+
 export async function run(argv, environment = {}) {
   const { command, options } = parseArgs(argv);
   if (options.help || !command) {
@@ -144,26 +153,41 @@ export async function run(argv, environment = {}) {
   const home = path.resolve(options.home ?? environment.home ?? os.homedir());
   const dashboardOptions = parseOptions(options.options);
 
+  // Filter changes read aggregated rows, not the large dedup/parser store.
+  // Capture its revision BEFORE reading, so a concurrent atomic store replacement
+  // can only leave an obsolete cache, never tag old rows with a newer revision.
+  let revision = await cacheRevision(storePath);
+  let cached = await readCache(storePath, "dashboard", revision);
+  let snapshot;
   if (command === "prepare") {
-    const loaded = await loadStore(storePath, { readOnly: true });
-    const snapshot = storeSnapshot(loaded.store, loaded);
-    const derived = derive(snapshot, dashboardOptions);
-    return {
-      exitCode: 0,
-      stdout: `${JSON.stringify(presentation("prepare", snapshot, dashboardOptions, derived.dashboard, derived.error))}\n`,
-      stderr: "",
-    };
+    if (matchesDashboard(cached, dashboardOptions)) {
+      return { exitCode: 0, stdout: `${JSON.stringify({ ...cached.payload, command })}\n`, stderr: "" };
+    }
+    snapshot = await readCache(storePath, "snapshot", revision);
+    if (!Array.isArray(snapshot?.rows)) {
+      const loaded = await loadStore(storePath, { readOnly: true });
+      snapshot = storeSnapshot(loaded.store, loaded);
+      if (loaded.exists && !loaded.dirty) await writeCache(storePath, "snapshot", revision, snapshot);
+    }
+  } else {
+    snapshot = await collectSnapshot(command, {
+      store: storePath, home, config: options.config,
+    });
+    revision = snapshot.revision;
+    cached = await readCache(storePath, "dashboard", revision);
   }
 
-  const snapshot = await collectSnapshot(command, {
-    store: storePath, home, config: options.config,
-  });
-  const derived = derive(snapshot, dashboardOptions);
-  return {
-    exitCode: 0,
-    stdout: `${JSON.stringify(presentation(command, snapshot, dashboardOptions, derived.dashboard, derived.error))}\n`,
-    stderr: "",
-  };
+  let payload;
+  if (matchesDashboard(cached, dashboardOptions)) {
+    payload = { ...cached.payload, command, snapshot: compactSnapshot(snapshot) };
+  } else {
+    const derived = derive(snapshot, dashboardOptions);
+    payload = presentation(command, snapshot, dashboardOptions, derived.dashboard, derived.error);
+  }
+  if (payload.dashboard && !payload.error) {
+    await writeCache(storePath, "dashboard", revision, { day: todayKey(), payload });
+  }
+  return { exitCode: 0, stdout: `${JSON.stringify(payload)}\n`, stderr: "" };
 }
 
 function isEntryPoint() {
